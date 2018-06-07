@@ -2,7 +2,7 @@ module Main exposing (..)
 
 import Color as Colors
 import Element exposing (Element, Grid, el, empty, grid, layout, text)
-import Element.Attributes exposing (px)
+import Element.Attributes exposing (center, padding, px, spacing, verticalCenter)
 import Html exposing (Html)
 import List
 import List.Extra as ListE
@@ -10,6 +10,7 @@ import Maybe.Extra as MaybeE
 import Style exposing (..)
 import Style.Border as Border
 import Style.Color as Color
+import Style.Font as Font
 
 
 -- MODEL
@@ -116,11 +117,13 @@ sheet =
             [ Border.all 1
             , Border.solid
             , Border.rounded 5
+            , Font.size 60
             ]
         , style SelectedCellStyle
             [ Border.all 1
             , Border.solid
             , Border.rounded 5
+            , Font.size 60
             , Color.background Colors.lightGray
             ]
         ]
@@ -134,12 +137,17 @@ view model =
 
 viewBoard : Board b -> Element Styles variation Msg
 viewBoard model =
-    grid NoStyle
-        []
-        { rows = List.repeat 3 (px 100)
-        , columns = List.repeat 3 (px 100)
-        , cells = viewCells model
-        }
+    el
+        NoStyle
+        [ center, verticalCenter ]
+        (grid
+            NoStyle
+            [ spacing 10 ]
+            { rows = List.repeat 3 (px 100)
+            , columns = List.repeat 3 (px 100)
+            , cells = viewCells model
+            }
+        )
 
 
 viewCells : Board b -> List (Element.OnGrid (Element Styles variation Msg))
@@ -168,7 +176,7 @@ viewCells board =
 
 viewCell : Styles -> Cell -> Element.OnGrid (Element Styles variation Msg)
 viewCell styles cell =
-    Element.cell { start = ( cell.x, cell.y ), width = 1, height = 1, content = el styles [] (viewPlayer cell.player) }
+    Element.cell { start = ( cell.x, cell.y ), width = 1, height = 1, content = el styles [ center, verticalCenter, padding 20 ] (viewPlayer cell.player) }
 
 
 viewEmptyCell : Pos a -> Element.OnGrid (Element Styles variation Msg)
