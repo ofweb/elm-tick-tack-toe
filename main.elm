@@ -109,23 +109,25 @@ type Styles
     | SelectedCellStyle
 
 
+cellBaseSheet : List (Property Styles variation)
+cellBaseSheet =
+    [ Border.all 1
+    , Border.solid
+    , Border.rounded 5
+    , Font.size 60
+    ]
+
+
 sheet : StyleSheet Styles variation
 sheet =
     Style.styleSheet
         [ style NoStyle []
         , style CellStyle
-            [ Border.all 1
-            , Border.solid
-            , Border.rounded 5
-            , Font.size 60
-            ]
+            cellBaseSheet
         , style SelectedCellStyle
-            [ Border.all 1
-            , Border.solid
-            , Border.rounded 5
-            , Font.size 60
-            , Color.background Colors.lightGray
-            ]
+            (Color.background Colors.lightGray
+                :: cellBaseSheet
+            )
         ]
 
 
