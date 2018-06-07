@@ -1,9 +1,15 @@
 module Main exposing (..)
 
-import Element exposing (column, el, empty, layout, row, text)
+import Color as Colors
+import Element exposing (Element, Grid, el, empty, grid, layout, text)
+import Element.Attributes exposing (px)
 import Html exposing (Html)
 import List
+import List.Extra as ListE
+import Maybe.Extra as MaybeE
 import Style exposing (..)
+import Style.Border as Border
+import Style.Color as Color
 
 
 -- MODEL
@@ -30,12 +36,13 @@ type alias Board a =
     { a | pieces : Pieces, selected : Maybe Cell }
 
 
-type alias BoardPieces a =
-    { a | pieces : Pieces }
-
-
 type alias Model =
-    { pieces : Pieces, turn : Player, selected : Maybe Cell, winner : Player }
+    { pieces : Pieces, turn : Player, selected : Maybe Cell, winner : Maybe Player }
+
+
+initialModel : Model
+initialModel =
+    { pieces = [ { x = 0, y = 0, player = O }, { x = 2, y = 2, player = O } ], turn = X, selected = Just { x = 1, y = 1, player = X }, winner = Nothing }
 
 
 setPos : Pos a -> Cell -> Cell
@@ -48,37 +55,19 @@ posEq pos pos2 =
     pos.x == pos2.x && pos.y == pos2.y
 
 
-getCell : Pos a -> BoardPieces a -> Maybe Cell
+getCell : Pos a -> { b | pieces : Pieces } -> Maybe Cell
 getCell pos model =
-    List.head (List.filter (\c -> posEq c pos) model.pieces)
+    List.head (List.filter (posEq pos) model.pieces)
 
 
-removeCell : Pos b -> BoardPieces a -> BoardPieces a
+removeCell : Pos b -> { a | pieces : Pieces } -> { a | pieces : Pieces }
 removeCell pos model =
     { model | pieces = List.filter (\c -> not (posEq c pos)) model.pieces }
 
 
-type ViewCell
-    = Normal (Maybe Cell)
-    | Selected Cell
-
-
-viewCellFor : Board a -> Pos b -> ViewCell
-viewCellFor model pos =
-    case model.selected of
-        Just cell ->
-            if posEq cell pos then
-                Selected cell
-            else
-                Normal (getCell pos model)
-
-        Nothing ->
-            Normal (getCell pos model)
-
-
-mapViewCells : (ViewCell -> a) -> Board b -> Int -> List a
-mapViewCells func model x =
-    List.map (\y -> func (viewCellFor model { x = x, y = y })) (List.range 0 2)
+getSelected : Board b -> Pos a -> Maybe Cell
+getSelected model pos =
+    MaybeE.filter (posEq pos) model.selected
 
 
 
@@ -100,61 +89,106 @@ update msg model =
         MovePiece p ->
             case model.selected of
                 Just cell ->
-                    { model | selected = Nothing, pieces = setPos p cell :: model }
+                    { model | selected = Nothing, pieces = setPos p cell :: model.pieces }
 
                 Nothing ->
                     model
 
         SelectPiece p ->
-            { model | selected = getCell p model, pieces = removeCell p model }
+            { model | selected = getCell p model, pieces = (removeCell p model).pieces }
 
 
 
 -- VIEW
 
 
-type StyleClass
+type Styles
     = NoStyle
+    | CellStyle
+    | SelectedCellStyle
 
 
+sheet : StyleSheet Styles variation
 sheet =
     Style.styleSheet
         [ style NoStyle []
+        , style CellStyle
+            [ Border.all 1
+            , Border.solid
+            , Border.rounded 5
+            ]
+        , style SelectedCellStyle
+            [ Border.all 1
+            , Border.solid
+            , Border.rounded 5
+            , Color.background Colors.lightGray
+            ]
         ]
 
 
 view : Model -> Html Msg
 view model =
     Element.layout sheet <|
-        row NoStyle
-            []
-            [ column NoStyle
-                []
-                []
-            ]
+        viewBoard model
 
 
+viewBoard : Board b -> Element Styles variation Msg
 viewBoard model =
-    List.map (\x -> mapViewCells viewCell model x) (List.range 0 2)
+    grid NoStyle
+        []
+        { rows = List.repeat 3 (px 100)
+        , columns = List.repeat 3 (px 100)
+        , cells = viewCells model
+        }
 
 
-viewCell vc =
-    case vc of
-        Normal Nothing ->
-            el NoStyle [] empty
+viewCells : Board b -> List (Element.OnGrid (Element Styles variation Msg))
+viewCells board =
+    List.map
+        (\p ->
+            case p of
+                [ x, y ] ->
+                    let
+                        pos =
+                            { x = x, y = y }
+                    in
+                    Maybe.withDefault (viewEmptyCell pos)
+                        (MaybeE.orElse
+                            (Maybe.map (viewCell SelectedCellStyle) (getSelected board pos))
+                            (Maybe.map (viewCell CellStyle) (getCell pos board))
+                        )
 
-        Normal (Just cell) ->
-            el NoStyle [] (text (viewPlayer cell.player))
+                _ ->
+                    Debug.crash "not a coordinate"
+        )
+        (ListE.cartesianProduct
+            [ [ 0, 1, 2 ], [ 0, 1, 2 ] ]
+        )
 
-        Selected cell ->
-            el NoStyle [] (text (viewPlayer cell.player))
+
+viewCell : Styles -> Cell -> Element.OnGrid (Element Styles variation Msg)
+viewCell styles cell =
+    Element.cell { start = ( cell.x, cell.y ), width = 1, height = 1, content = el styles [] (viewPlayer cell.player) }
 
 
-viewPlayer : Player -> String
+viewEmptyCell : Pos a -> Element.OnGrid (Element Styles variation Msg)
+viewEmptyCell pos =
+    Element.cell { start = ( pos.x, pos.y ), width = 1, height = 1, content = el CellStyle [] empty }
+
+
+viewPlayer : Player -> Element Styles variation Msg
 viewPlayer player =
     case player of
         X ->
-            "X"
+            text "X"
 
         O ->
-            "O"
+            text "O"
+
+
+main =
+    Html.beginnerProgram
+        { model = initialModel
+        , view = view
+        , update = update
+        }
