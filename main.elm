@@ -3,6 +3,7 @@ module Main exposing (..)
 import Color as Colors
 import Element exposing (Element, Grid, el, empty, grid, layout, text)
 import Element.Attributes exposing (center, padding, px, spacing, verticalCenter)
+import Element.Events exposing (onClick)
 import Html exposing (Html)
 import List
 import List.Extra as ListE
@@ -38,12 +39,12 @@ type alias Board a =
 
 
 type alias Model =
-    { pieces : Pieces, turn : Player, selected : Maybe Cell, winner : Maybe Player }
+    { pieces : Pieces, turn : Player, selected : Maybe Cell, winner : Maybe Player, error : Maybe String }
 
 
 initialModel : Model
 initialModel =
-    { pieces = [ { x = 0, y = 0, player = O }, { x = 2, y = 2, player = O } ], turn = X, selected = Just { x = 1, y = 1, player = X }, winner = Nothing }
+    { pieces = [ { x = 0, y = 0, player = O }, { x = 2, y = 2, player = O } ], turn = X, selected = Just { x = 1, y = 1, player = X }, winner = Nothing, error = Nothing }
 
 
 setPos : Pos a -> Cell -> Cell
@@ -54,6 +55,26 @@ setPos pos cell =
 posEq : Pos a -> Pos b -> Bool
 posEq pos pos2 =
     pos.x == pos2.x && pos.y == pos2.y
+
+
+playerEq : Player -> Cell -> Bool
+playerEq player cell =
+    case player of
+        X ->
+            case cell.player of
+                X ->
+                    True
+
+                O ->
+                    False
+
+        O ->
+            case cell.player of
+                X ->
+                    False
+
+                O ->
+                    True
 
 
 getCell : Pos a -> { b | pieces : Pieces } -> Maybe Cell
@@ -71,18 +92,38 @@ getSelected model pos =
     MaybeE.filter (posEq pos) model.selected
 
 
+isCellEmpty : Board b -> Pos a -> Bool
+isCellEmpty board pos =
+    MaybeE.isJust (MaybeE.orElse (getSelected board pos) (getCell pos board))
+
+
+pieceCount : Board b -> Int
+pieceCount board =
+    List.length board.pieces
+        + (if MaybeE.isJust board.selected then
+            1
+           else
+            0
+          )
+
+
 
 -- UPDATE
 
 
 type Msg
     = AddPiece Cell
-    | MovePiece { x : Int, y : Int }
+    | MovePiece Cell
     | SelectPiece Cell
+    | ShowError String
 
 
 update : Msg -> Model -> Model
-update msg model =
+update msg m =
+    let
+        model =
+            { m | error = Nothing }
+    in
     case msg of
         AddPiece c ->
             { model | pieces = c :: model.pieces }
@@ -97,6 +138,47 @@ update msg model =
 
         SelectPiece p ->
             { model | selected = getCell p model, pieces = (removeCell p model).pieces }
+
+        ShowError s ->
+            { model | error = Just s }
+
+
+clickEvent : Model -> Maybe Cell -> Pos a -> Msg
+clickEvent model mCell pos =
+    if pieceCount model == 6 then
+        let
+            selected =
+                MaybeE.isJust model.selected
+
+            ownPiece =
+                MaybeE.isJust (MaybeE.filter (playerEq model.turn) mCell) && MaybeE.isJust mCell
+        in
+        case ( selected, ownPiece, mCell ) of
+            ( True, _, Nothing ) ->
+                MovePiece { x = pos.x, y = pos.y, player = model.turn }
+
+            ( True, _, Just _ ) ->
+                ShowError "That cell is occupied, please select an empty cell"
+
+            ( False, True, Just cell ) ->
+                SelectPiece cell
+
+            ( False, _, Nothing ) ->
+                ShowError "That cell is empty, please select one of your own pieces to move"
+
+            ( False, False, Just _ ) ->
+                ShowError "That cell contains one of your oponents pieces, please select one of your obwn pieces to move"
+    else
+        let
+            ownPiece =
+                MaybeE.isJust (MaybeE.filter (playerEq model.turn) mCell) && MaybeE.isJust mCell
+        in
+        case ( ownPiece, mCell ) of
+            ( False, Nothing ) ->
+                AddPiece { x = pos.x, y = pos.y, player = model.turn }
+
+            ( _, _ ) ->
+                ShowError "That cell is occupied, please select an empty cell to add your next piece to"
 
 
 
@@ -115,6 +197,7 @@ cellBaseSheet =
     , Border.solid
     , Border.rounded 5
     , Font.size 60
+    , hover [ Color.background Colors.lightBlue ]
     ]
 
 
@@ -137,7 +220,7 @@ view model =
         viewBoard model
 
 
-viewBoard : Board b -> Element Styles variation Msg
+viewBoard : Model -> Element Styles variation Msg
 viewBoard model =
     el
         NoStyle
@@ -147,13 +230,13 @@ viewBoard model =
             [ spacing 10 ]
             { rows = List.repeat 3 (px 100)
             , columns = List.repeat 3 (px 100)
-            , cells = viewCells model
+            , cells = viewCells (clickEvent model) model
             }
         )
 
 
-viewCells : Board b -> List (Element.OnGrid (Element Styles variation Msg))
-viewCells board =
+viewCells : (Maybe Cell -> Pos a -> Msg) -> Board b -> List (Element.OnGrid (Element Styles variation Msg))
+viewCells getMsg model =
     List.map
         (\p ->
             case p of
@@ -162,10 +245,10 @@ viewCells board =
                         pos =
                             { x = x, y = y }
                     in
-                    Maybe.withDefault (viewEmptyCell pos)
+                    Maybe.withDefault (viewEmptyCell getMsg pos)
                         (MaybeE.orElse
-                            (Maybe.map (viewCell SelectedCellStyle) (getSelected board pos))
-                            (Maybe.map (viewCell CellStyle) (getCell pos board))
+                            (Maybe.map (viewCell getMsg SelectedCellStyle) (getSelected model pos))
+                            (Maybe.map (viewCell getMsg CellStyle) (getCell pos model))
                         )
 
                 _ ->
@@ -176,14 +259,22 @@ viewCells board =
         )
 
 
-viewCell : Styles -> Cell -> Element.OnGrid (Element Styles variation Msg)
-viewCell styles cell =
-    Element.cell { start = ( cell.x, cell.y ), width = 1, height = 1, content = el styles [ center, verticalCenter, padding 20 ] (viewPlayer cell.player) }
+viewCell : (Maybe Cell -> Pos a -> Msg) -> Styles -> Cell -> Element.OnGrid (Element Styles variation Msg)
+viewCell getMsg styles cell =
+    let
+        msg =
+            getMsg (Just cell) cell
+    in
+    Element.cell { start = ( cell.x, cell.y ), width = 1, height = 1, content = el styles [ onClick msg, center, verticalCenter, padding 20 ] (viewPlayer cell.player) }
 
 
-viewEmptyCell : Pos a -> Element.OnGrid (Element Styles variation Msg)
-viewEmptyCell pos =
-    Element.cell { start = ( pos.x, pos.y ), width = 1, height = 1, content = el CellStyle [] empty }
+viewEmptyCell : (Maybe Cell -> Pos a -> Msg) -> Pos a -> Element.OnGrid (Element Styles variation Msg)
+viewEmptyCell getMsg pos =
+    let
+        msg =
+            getMsg Nothing pos
+    in
+    Element.cell { start = ( pos.x, pos.y ), width = 1, height = 1, content = el CellStyle [ onClick msg ] empty }
 
 
 viewPlayer : Player -> Element Styles variation Msg
