@@ -115,10 +115,10 @@ type Msg
     = AddPiece Cell
     | MovePiece Cell
     | SelectPiece Cell
-    | ShowError Error
+    | ShowError ErrorType
 
 
-type Error
+type ErrorType
     = SelectOpponentCell
     | SelectEmptyCell
     | MoveToOccupiedCell
@@ -126,7 +126,7 @@ type Error
     | AddTOOpponentCell
 
 
-showError : Error -> String
+showError : ErrorType -> String
 showError err =
     case err of
         SelectOpponentCell ->
@@ -166,12 +166,16 @@ update msg m =
         SelectPiece p ->
             { model | selected = getCell p model, pieces = (removeCell p model).pieces }
 
-        ShowError s ->
-            { model | error = Just s }
+        ShowError err ->
+            { model | error = Just <| showError err }
 
 
-clickEvent : Model -> Maybe Cell -> Pos a -> Msg
-clickEvent model mCell pos =
+clickEvent : Model -> Pos a -> Msg
+clickEvent model pos =
+    let
+        mCell =
+            MaybeE.orElse (getSelected model pos) (getCell pos model)
+    in
     if pieceCount model == 6 then
         let
             selected =
@@ -252,22 +256,19 @@ sheet : StyleSheet Styles variation
 sheet =
     Style.styleSheet
         [ style NoStyle []
-        , style CellStyle
-            Clickable
+        , style (CellStyle Clickable)
             (cellHoverStyle Clickable :: cellBaseSheet)
-        , style CellStyle
-            Selected
+        , style (CellStyle Selected)
             (cellHoverStyle Selected
                 :: cellBaseSheet
             )
-        , style CellStyle
-            Error
+        , style (CellStyle Error)
             (cellHoverStyle Error :: cellBaseSheet)
         ]
 
 
-getCellStyle : Msg -> Pos a -> Board b -> Styles
-getCellStyle msg pos model =
+getCellStyle : Pos a -> Board b -> Msg -> Styles
+getCellStyle pos model msg =
     let
         selected =
             getSelected model pos
@@ -310,16 +311,24 @@ viewBoard model =
         )
 
 
-viewCells : (Maybe Cell -> Pos a -> Msg) -> Board b -> List (Element.OnGrid (Element Styles variation Msg))
+makePos : Int -> Int -> { x : Int, y : Int }
+makePos x y =
+    { x = x, y = y }
+
+
+viewCells : (Pos a -> Msg) -> Board b -> List (Element.OnGrid (Element Styles variation Msg))
 viewCells getMsg model =
     List.map
-        (\pos ->
+        (\[ x, y ] ->
             let
+                pos =
+                    makePos x y
+
                 msg =
                     getMsg pos
 
                 cellStyle =
-                    getCellStyle msg pos model
+                    getCellStyle pos model msg
             in
             Maybe.withDefault
                 (viewEmptyCell msg cellStyle pos)
@@ -328,26 +337,24 @@ viewCells getMsg model =
                     (Maybe.map (viewCell msg cellStyle) (getCell pos model))
                 )
         )
-        List.map
-        (\[ x, y ] -> { x = x, y = y })
         (ListE.cartesianProduct
             [ [ 0, 1, 2 ], [ 0, 1, 2 ] ]
         )
 
 
 viewCell : Msg -> Styles -> Cell -> Element.OnGrid (Element Styles variation Msg)
-viewCell msg styles cell =
+viewCell msg cellStyle cell =
     Element.cell
         { start = ( cell.x, cell.y )
         , width = 1
         , height = 1
-        , content = el styles [ onClick msg, center, verticalCenter, padding 20 ] (viewPlayer cell.player)
+        , content = el cellStyle [ onClick msg, center, verticalCenter, padding 20 ] (viewPlayer cell.player)
         }
 
 
 viewEmptyCell : Msg -> Styles -> Pos a -> Element.OnGrid (Element Styles variation Msg)
-viewEmptyCell msg styles pos =
-    Element.cell { start = ( pos.x, pos.y ), width = 1, height = 1, content = el styles [ onClick msg ] empty }
+viewEmptyCell msg cellStyle pos =
+    Element.cell { start = ( pos.x, pos.y ), width = 1, height = 1, content = el cellStyle [ onClick msg ] empty }
 
 
 viewPlayer : Player -> Element Styles variation Msg
